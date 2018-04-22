@@ -1,6 +1,5 @@
 package com.Supervision.typed
 
-import akka.actor.Actor
 import akka.actor.typed.scaladsl.{ActorContext, Behaviors, MutableBehavior}
 import akka.actor.typed.{ActorRef, Behavior, PostStop, PreRestart, Signal, SupervisorStrategy, Terminated}
 import com.Supervision.typed.FromActorMsg.{Alive, Spawned}
