@@ -1,6 +1,6 @@
 package com.Supervision.typed
 
-import akka.typed.ActorRef
+import akka.actor.typed.ActorRef
 import com.Supervision.typed.FromActorMsg.Spawned
 
 sealed trait ToParentMsg

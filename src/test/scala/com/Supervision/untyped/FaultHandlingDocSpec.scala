@@ -1,14 +1,17 @@
 package com.Supervision.untyped
 
-import akka.actor.{ActorRef, ActorSystem, Props, Terminated}
-import akka.testkit.{ImplicitSender, TestKit}
+import akka.actor.{ActorRef, ActorSystem, PoisonPill, Props, Terminated}
+import akka.testkit.{ImplicitSender, TestKit, TestProbe}
 import com.typesafe.config.ConfigFactory
-import org.scalatest.{BeforeAndAfterAll, FlatSpecLike, Matchers}
+import org.scalatest.{BeforeAndAfterAll, FunSuiteLike, Matchers}
+
+import scala.collection.immutable
+import scala.concurrent.duration.DurationInt
 
 class FaultHandlingDocSpec(_system: ActorSystem)
     extends TestKit(_system)
     with ImplicitSender
-    with FlatSpecLike
+    with FunSuiteLike
     with Matchers
     with BeforeAndAfterAll {
 
@@ -29,9 +32,64 @@ class FaultHandlingDocSpec(_system: ActorSystem)
     TestKit.shutdownActorSystem(system)
   }
 
-  "A supervisor" must "apply the chosen strategy for its child" in {
-    // code here
-    val supervisor = system.actorOf(Props[Supervisor], "supervisor")
+  test("an actor watches death of an actor it creates") {
+    val supervisor = system.actorOf(Props(new Supervisor(this.testActor)), "supervisor")
+
+    supervisor ! Props[Child]
+    val child = expectMsgType[ActorRef] // retrieve answer from TestKit’s testActor
+
+    child ! 40
+    child ! "get"
+    expectMsg(40)
+
+    child ! PoisonPill
+
+    expectNoMessage(3.seconds)
+  }
+
+  test("an actor watches death of an actor it creates") {
+    val supervisor = system.actorOf(Props(new Supervisor(this.testActor)), "supervisor")
+
+    supervisor ! Props[Child]
+    val child = expectMsgType[ActorRef] // retrieve answer from TestKit’s testActor
+
+    supervisor ! WatchChild
+    child ! 40
+    child ! "get"
+    expectMsg(40)
+
+    child ! PoisonPill
+
+    expectMsg(ChildTerminated(child))
+  }
+
+  test("an actor can watch an actor it does not create") {
+    val supervisor = system.actorOf(Props(new Supervisor(this.testActor)), "supervisor")
+
+    supervisor ! Props[Child]
+    val child = expectMsgType[ActorRef] // retrieve answer from TestKit’s testActor
+
+    watch(child)
+    child ! 40
+    child ! "get"
+    expectMsg(40)
+
+    child ! PoisonPill
+
+    val msg = expectMsgType[Terminated]
+    msg.actor shouldBe child
+  }
+
+  test("an actor can stop an actor it creates") {}
+
+  test("an actor can stop an actor it does not create") {}
+
+  test("default supervision") {}
+
+  test("signals") {}
+
+  test("A supervisor must apply the chosen strategy for its child") {
+    val supervisor = system.actorOf(Props(new Supervisor(testActor)), "supervisor")
 
     supervisor ! Props[Child]
     val child = expectMsgType[ActorRef] // retrieve answer from TestKit’s testActor

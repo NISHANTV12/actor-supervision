@@ -1,11 +1,12 @@
 package com.Supervision.typed
 
-import akka.actor.Actor
 import akka.actor.typed.ActorSystem
+import akka.actor.typed.scaladsl.adapter.UntypedActorSystemOps
 import akka.testkit.typed.TestKitSettings
 import akka.testkit.typed.scaladsl.TestProbe
 import akka.util.Timeout
 import com.Supervision.typed.FromActorMsg.{CurrentState, Spawned}
+import com.Supervision.typed.SystemExt.RichSystem
 import com.Supervision.typed.ToChildMsg.{Fail, GetState, UpdateState}
 import com.Supervision.typed.ToParentMsg.{Spawn, Stop, Watch}
 import org.scalatest.{FunSuite, Matchers}
@@ -13,17 +14,20 @@ import org.scalatest.{FunSuite, Matchers}
 import scala.concurrent.Await
 import scala.concurrent.duration.DurationInt
 
-class SupervisionTest extends FunSuite with Matchers {
+class RichActorSystemSupervisionTest extends FunSuite with Matchers {
 
-  implicit val system: ActorSystem[Nothing] = ActorSystem(Actor.emptyBehavior(), "test-typed-system")
-  implicit val settings: TestKitSettings    = TestKitSettings(system)
-  implicit val timeout: Timeout             = Timeout(5.seconds)
+  private val untypedSystem                      = akka.actor.ActorSystem("testHcd")
+  implicit val typedSystem: ActorSystem[Nothing] = untypedSystem.toTyped
+  implicit val richSystem: RichSystem            = new RichSystem(untypedSystem)
+  implicit val settings: TestKitSettings         = TestKitSettings(typedSystem)
+  implicit val timeout: Timeout                  = Timeout(5.seconds)
 
+  typedSystem.receptionist
   test("an actor can watch an actor it creates for signals") {
     val testProbe    = TestProbe[FromActorMsg]
     val watcherProbe = TestProbe[LifecycleMsg]
 
-    val parent = Await.result(system.systemActorOf(Supervisor.behavior(watcherProbe.ref), "Parent"), 5.seconds)
+    val parent = Await.result(richSystem.spawnTyped(Supervisor.behavior(watcherProbe.ref), "Parent"), 5.seconds)
 
     parent ! Spawn(testProbe.ref)
 
@@ -38,7 +42,7 @@ class SupervisionTest extends FunSuite with Matchers {
     spawnedActor.ref ! GetState(testProbe.ref)
     testProbe.expectMessage(CurrentState(0))
 
-    spawnedActor.ref ! Fail(new RuntimeException("You need to stop"))
+    spawnedActor.ref ! Fail(new RuntimeException("You need to stop again"))
     watcherProbe.expectMessage(LifecycleMsg.PostStop(spawnedActor.ref))
     watcherProbe.expectMessage(LifecycleMsg.Terminated(spawnedActor.ref))
   }
@@ -47,8 +51,8 @@ class SupervisionTest extends FunSuite with Matchers {
     val testProbe    = TestProbe[FromActorMsg]
     val watcherProbe = TestProbe[LifecycleMsg]
 
-    val parent = Await.result(system.systemActorOf(Supervisor.behavior(watcherProbe.ref), "Parent"), 5.seconds)
-    val stray  = Await.result(system.systemActorOf(Child.behavior(watcherProbe.ref), "Stray"), 5.seconds)
+    val parent = Await.result(richSystem.spawnTyped(Supervisor.behavior(watcherProbe.ref), "Parent"), 5.seconds)
+    val stray  = Await.result(richSystem.spawnTyped(Child.behavior(watcherProbe.ref), "Stray"), 5.seconds)
 
     parent ! Watch(stray)
 
@@ -66,7 +70,7 @@ class SupervisionTest extends FunSuite with Matchers {
     val testProbe    = TestProbe[FromActorMsg]
     val watcherProbe = TestProbe[LifecycleMsg]
 
-    val parent = Await.result(system.systemActorOf(Supervisor.behavior(watcherProbe.ref), "Parent"), 5.seconds)
+    val parent = Await.result(richSystem.spawnTyped(Supervisor.behavior(watcherProbe.ref), "Parent"), 5.seconds)
 
     parent ! Spawn(testProbe.ref)
 
@@ -85,8 +89,8 @@ class SupervisionTest extends FunSuite with Matchers {
     val testProbe    = TestProbe[FromActorMsg]
     val watcherProbe = TestProbe[LifecycleMsg]
 
-    val parent = Await.result(system.systemActorOf(Supervisor.behavior(watcherProbe.ref), "Parent"), 5.seconds)
-    val stray  = Await.result(system.systemActorOf(Child.behavior(watcherProbe.ref), "Parent"), 5.seconds)
+    val parent = Await.result(richSystem.spawnTyped(Supervisor.behavior(watcherProbe.ref), "Parent"), 5.seconds)
+    val stray  = Await.result(richSystem.spawnTyped(Child.behavior(watcherProbe.ref), "Parent"), 5.seconds)
 
     stray ! UpdateState(100)
     stray ! GetState(testProbe.ref)
@@ -101,25 +105,15 @@ class SupervisionTest extends FunSuite with Matchers {
     testProbe.expectMessage(CurrentState(100))
   }
 
-  test("default supervision") {}
-
-  test("signals") {}
-
-  test("terminate system test") {
+  test("actor system termination") {
     val testProbe    = TestProbe[FromActorMsg]
     val watcherProbe = TestProbe[LifecycleMsg]
 
-    val parent = Await.result(system.systemActorOf(Supervisor.behavior(watcherProbe.ref), "Parent"), 5.seconds)
+    val parent = Await.result(richSystem.spawnTyped(Supervisor.behavior(watcherProbe.ref), "Parent"), 5.seconds)
 
     parent ! Spawn(testProbe.ref)
 
-    val spawnedActor = testProbe.expectMessageType[Spawned]
-    spawnedActor.ref ! UpdateState(100)
-    spawnedActor.ref ! GetState(testProbe.ref)
+    Await.result(untypedSystem.terminate(), 5.seconds)
 
-    testProbe.expectMessage(CurrentState(100))
-
-    Await.result(system.terminate(), 10.seconds)
   }
-
 }
